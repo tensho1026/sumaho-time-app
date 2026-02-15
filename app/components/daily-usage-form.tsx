@@ -21,15 +21,40 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const formSchema = z.object({
-  targetMinutes: z.number().int().min(1, "1分以上を入力してください").max(24 * 60),
-  actualMinutes: z.number().int().min(0, "0分以上を入力してください").max(24 * 60),
+  targetHours: z.number().int().min(0).max(24),
+  targetMinutesPart: z.number().int().min(0).max(59),
+  actualHours: z.number().int().min(0).max(24),
+  actualMinutesPart: z.number().int().min(0).max(59),
   comparison: z.enum(["yesterday", "weekAvg", "best"]),
+}).superRefine((values, ctx) => {
+  const targetTotalMinutes = values.targetHours * 60 + values.targetMinutesPart;
+  const actualTotalMinutes = values.actualHours * 60 + values.actualMinutesPart;
+
+  if (targetTotalMinutes < 1 || targetTotalMinutes > 24 * 60) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["targetMinutesPart"],
+      message: "目標時間は 0時間1分 〜 24時間0分 で入力してください",
+    });
+  }
+
+  if (actualTotalMinutes < 0 || actualTotalMinutes > 24 * 60) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["actualMinutesPart"],
+      message: "実利用時間は 0時間0分 〜 24時間0分 で入力してください",
+    });
+  }
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 type DailyUsageFormProps = {
-  defaultValues: FormValues;
+  defaultValues: {
+    targetMinutes: number;
+    actualMinutes: number;
+    comparison: "yesterday" | "weekAvg" | "best";
+  };
 };
 
 const initialSaveDailyUsageState: SaveDailyUsageState = {
@@ -44,15 +69,26 @@ export function DailyUsageForm({ defaultValues }: DailyUsageFormProps) {
   );
   const [isPending, startTransition] = useTransition();
 
+  const initialValues: FormValues = {
+    targetHours: Math.floor(defaultValues.targetMinutes / 60),
+    targetMinutesPart: defaultValues.targetMinutes % 60,
+    actualHours: Math.floor(defaultValues.actualMinutes / 60),
+    actualMinutesPart: defaultValues.actualMinutes % 60,
+    comparison: defaultValues.comparison,
+  };
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues,
+    defaultValues: initialValues,
   });
 
   const onSubmit = form.handleSubmit((values) => {
+    const targetMinutes = values.targetHours * 60 + values.targetMinutesPart;
+    const actualMinutes = values.actualHours * 60 + values.actualMinutesPart;
+
     const formData = new FormData();
-    formData.set("targetMinutes", String(values.targetMinutes));
-    formData.set("actualMinutes", String(values.actualMinutes));
+    formData.set("targetMinutes", String(targetMinutes));
+    formData.set("actualMinutes", String(actualMinutes));
     formData.set("comparison", values.comparison);
 
     startTransition(() => {
@@ -64,56 +100,104 @@ export function DailyUsageForm({ defaultValues }: DailyUsageFormProps) {
     <Card className="rounded-xl">
       <CardHeader>
         <CardTitle>今日の記録入力</CardTitle>
-        <CardDescription>目標・実利用・比較基準を入力して保存します。</CardDescription>
+        <CardDescription>目標・実利用を「時間」と「分」で入力して保存します。</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
           <form className="space-y-6" onSubmit={onSubmit}>
-            <FormField
-              control={form.control}
-              name="targetMinutes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>目標時間（分）</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={24 * 60}
-                      value={field.value}
-                      onChange={(event) => field.onChange(Number(event.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                  {serverState.errors?.targetMinutes?.[0] ? (
-                    <p className="text-sm text-destructive">{serverState.errors.targetMinutes[0]}</p>
-                  ) : null}
-                </FormItem>
-              )}
-            />
+            <FormItem>
+              <p className="text-sm font-medium">目標時間</p>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="targetHours"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">時間</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={24}
+                          value={field.value}
+                          onChange={(event) => field.onChange(Number(event.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="targetMinutesPart"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">分</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={field.value}
+                          onChange={(event) => field.onChange(Number(event.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              {serverState.errors?.targetMinutes?.[0] ? (
+                <p className="text-sm text-destructive">{serverState.errors.targetMinutes[0]}</p>
+              ) : null}
+            </FormItem>
 
-            <FormField
-              control={form.control}
-              name="actualMinutes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>実利用時間（分）</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={24 * 60}
-                      value={field.value}
-                      onChange={(event) => field.onChange(Number(event.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                  {serverState.errors?.actualMinutes?.[0] ? (
-                    <p className="text-sm text-destructive">{serverState.errors.actualMinutes[0]}</p>
-                  ) : null}
-                </FormItem>
-              )}
-            />
+            <FormItem>
+              <p className="text-sm font-medium">実利用時間</p>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="actualHours"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">時間</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={24}
+                          value={field.value}
+                          onChange={(event) => field.onChange(Number(event.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="actualMinutesPart"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">分</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={field.value}
+                          onChange={(event) => field.onChange(Number(event.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              {serverState.errors?.actualMinutes?.[0] ? (
+                <p className="text-sm text-destructive">{serverState.errors.actualMinutes[0]}</p>
+              ) : null}
+            </FormItem>
 
             <FormField
               control={form.control}
